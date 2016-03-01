@@ -1,0 +1,543 @@
+<!--
+@license
+Copyright (c) 2015 The Polymer Project Authors. All rights reserved.
+This code may only be used under the BSD style license found at http://polymer.github.io/LICENSE.txt
+The complete set of authors may be found at http://polymer.github.io/AUTHORS.txt
+The complete set of contributors may be found at http://polymer.github.io/CONTRIBUTORS.txt
+Code distributed by Google as part of the polymer project is also
+subject to an additional IP rights grant found at http://polymer.github.io/PATENTS.txt
+-->
+<link rel="import" href="../polymer/polymer.html">
+<link rel="import" href="../iron-ajax/iron-ajax.html">
+<link rel="import" href="../paper-input/paper-input-container.html">
+<link rel="import" href="../iron-icons/iron-icons.html">
+<link rel="import" href="../iron-input/iron-input.html">
+<link rel="import" href="safe-html.html">
+<!--
+An auto complete search selection with tag list.
+
+Example:
+
+    <auto-search></auto-search>
+
+@demo
+-->
+<dom-module id="auto-search">
+    <style>
+    :host {
+        display: block;
+        --iron-icon-width: 18px;
+        --iron-icon-height: 18px;
+    }
+    
+    tag {
+        display: inline-block;
+        margin: 0 4px 3px 0;
+        padding: 0 3px;
+        background-color: #f5f5f5;
+        border: 1px solid #d9d9d9;
+        border-radius: 3px;
+        animation-name: slidein;
+        animation-duration: 0.2s;
+    }
+    
+    tag.infinite {
+        animation: conflict 0.5s infinite;
+        -webkit-animation: conflict 0.5s infinite;
+        /* Chrome, Safari, Opera */
+    }
+    
+    @keyframes conflict {
+        from {
+            opacity: 0;
+        }
+        to {
+            opacity: 1;
+        }
+    }
+    
+    @keyframes slidein {
+        from {
+            transform: translateX(50px);
+        }
+        to {
+            transform: translateX(0);
+        }
+    }
+    
+    iron-icon:hover {
+        cursor: pointer;
+    }
+    
+    paper-input-container {
+        position: relative;
+    }
+    
+    .overlay {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        display: none;
+        z-index: 9;
+        overflow: auto;
+    }
+    
+    .overlay.open {
+        display: block;
+    }
+    
+    .result-panel {
+        display: none;
+        position: absolute;
+        opacity: 0;
+        width: 100%;
+        background-color: #fff;
+        overflow: auto;
+        z-index: 99;
+        transition: transform 0.1s, opacity 0.1s;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        /*transform: translateY(-100px);*/
+        height: auto;
+        max-height: 300px;
+    }
+    
+    .result-panel.display {
+        display: block;
+    }
+    
+    .result-panel.open {
+        opacity: 1;
+        transition: all 0.1s;
+        height: auto;
+        /*transform: translateY(0);*/
+    }
+    
+    .result-panel .result-item {
+        padding: 10px;
+    }
+    
+    .result-panel .result-item > div:nth-child(2) {
+        font-size: 14px;
+    }
+    
+    .result-panel .result-item[data-selected] {
+        background-color: #eee;
+    }
+    
+    .result-panel .result-item:hover {
+        background-color: #eee;
+        cursor: pointer;
+    }
+    </style>
+    <template>
+        <div class="my-content">
+            <paper-input-container auto-validate$="[[autoValidate]]">
+                <label id="floatLabel" hidden$="{{display}}">{{label}}</label>
+                <template is="dom-repeat" items="{{tags}}" as="tag" hidden="{{!display}}">
+                    <tag id="{{_format(tag)}}">
+                        <span>{{tag}}</span>
+                        <iron-icon icon="close" on-tap="_removeTag"></iron-icon>
+                    </tag>
+                </template>
+                <input id="inputField" is="iron-input" required$="[[required]]" on-keyup="_onKeyUp" bind-value="{{value}}" on-blur="_onBlur" />
+                <div class="result-panel">
+                    <template is="dom-repeat" items="{{results}}" as="result">
+                        <div class="result-item" hidden$={{!result.main}} data-id$="{{result.id}}" data-selected$="{{result.select}}" data-value$="{{result.sub}}" data-target$="{{result.target}}" on-tap="_select" on-mousedown="_select">
+                            <div>
+                                <safe-html content="{{result.main}}"></safe-html>
+                            </div>
+                            <div>
+                                <safe-html content="{{result.sub}}"></safe-html>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </paper-input-container>
+        </div>
+        <div class="overlay" on-tap="_hideOverlay"></div>
+        <iron-ajax id="ajax" content-type="application/json" on-response="_response" method="GET" handle-as="json"></iron-ajax>
+    </template>
+</dom-module>
+<script>
+Polymer({
+    is: 'auto-search',
+
+    properties: {
+        /**
+         * List of selected items
+         */
+        tags: {
+            type: Array,
+            notify: true,
+            observer: "_setDisplay",
+            value: function() {
+                return [];
+            }
+        },
+        /**
+         * Place holder for input
+         */
+        label: {
+            type: String,
+            value: ""
+        },
+        /**
+         * Display float label
+         */
+        display: {
+            type: Boolean,
+            value: false
+        },
+        /**
+         * URL to load result
+         */
+        url: {
+            type: String,
+            value: ""
+        },
+        /**
+         * List of results after format
+         */
+        results: {
+            type: Array,
+            notify: true,
+            observer: "_resultChanged",
+            value: function() {
+                return [];
+            }
+        },
+        /**
+         * Mapping array from content to result. Ex: 
+         */
+        map: {
+            type: Array,
+            value: function() {
+                return [{
+                    key: "name",
+                    isMain: true
+                }, {
+                    key: "email",
+                    isTarget: true
+                }];
+            }
+        },
+        /**
+         * Search value
+         */
+        value: {
+            type: String,
+            notify: true,
+            value: ""
+        },
+        /**
+         * Determine whether have tag list or not
+         */
+        notTaggable: {
+            type: Boolean,
+            value: false
+        },
+        /**
+         * Auto validation
+         */
+        autoValidate: {
+            type: Boolean,
+            value: false
+        },
+        /**
+         * Empty allowable
+         */
+        required: {
+            type: Boolean,
+            value: false
+        },
+        /**
+         * Restrict to select 1 item only
+         */
+        singleValue: {
+            type: Boolean,
+            value: false
+        },
+        /**
+         * Display selected item at input
+         */
+        displaySelected: {
+            type: Boolean,
+            value: false
+        },
+        /**
+         * Input accepted key code range. Default support for letter, number, hyphen, underscore or space.
+         */
+        keyRange: {
+            type: String,
+            value: "[a-zA-Z0-9-_ ]"
+        }
+    },
+
+    _selected: 0,
+    _firstclick: true,
+
+    /**
+     * Validate input
+     */
+    validate: function() {
+        return this.$["inputField"].validate();
+    },
+
+    _resultChanged: function(n, o) {
+        if (!n || !o) return;
+        if (n.length < o.length) {
+            this.set("_selected", 0);
+            this.set("_firstclick", true);
+        }
+    },
+
+    _onBlur: function(e) {
+        if (e.target.value.trim() && !this.notTaggable) {
+            this._addTag(e.target.value.trim());
+        }
+        setTimeout(function() {
+            this._hideOverlay();
+        }.bind(this), 100);
+    },
+
+    _select: function(e) {
+        if (e.model.result && !this.notTaggable) this._addTag(e.model.result.target);
+        else this._fireCustomEvent(e.model.result.id || e.model.result.target);
+
+        if (this.singleValue || this.displaySelected) this.set("value", e.model.result.target);
+        else this.value = "";
+        this._hideOverlay();
+    },
+
+    _setDisplay: function() {
+        if (this.get('tags')) {
+            if (this.get('tags').length > 0) {
+                this.set('display', true);
+            } else {
+                this.set('display', false);
+            }
+        }
+    },
+
+    _isValidEmail: function(value) {
+        return value.match(/\S+@\S+\.\S+/ig)
+    },
+
+    _debounce: function(fn, time) {
+        var timeout;
+        return function() {
+            var self = this,
+                args = arguments;
+            clearTimeout(timeout);
+            timeout = setTimeout(function() {
+                timeout = null;
+                fn.apply(self, args);
+            }, time);
+        }
+    },
+
+    _hideOverlay: function(e) {
+        this.toggleClass("open", false, this.$$(".overlay"));
+        this.toggleClass("open", false, this.$$(".result-panel"));
+
+        this.set("_selected", 0);
+        this.set("_firstclick", true);
+        this.set("results", []);
+
+        setTimeout(function() {
+            this.toggleClass("display", false, this.$$(".result-panel"));
+        }.bind(this), 600);
+    },
+
+    _showOverlay: function() {
+        this.toggleClass("display", true, this.$$(".result-panel"));
+
+        setTimeout(function() {
+            this.toggleClass("open", true, this.$$(".result-panel"));
+            this.toggleClass("open", true, this.$$(".overlay"));
+        }.bind(this), 100);
+    },
+
+    _readObject: function(obj, key) {
+        return key.length > 1 ? this._readObject(obj[key.splice(0, 1)], key) : obj[key[0]];
+    },
+
+    _response: function(request) {
+        var resp = request.detail.response,
+            mainKey = [],
+            main,
+            subKey = [],
+            sub,
+            targetKey, results = [],
+            self = this,
+            reg, m = "",
+            m1 = "",
+            map;
+
+        if (this.singleValue) {
+            resp.forEach(function(v) {
+                reg = new RegExp(self.value.trim(), "ig");
+
+                if (v.match(reg)) {
+                    m1 = v.match(reg)[0] || "";
+                    results.push({
+                        main: v.replace(reg, "<span style=\"font-weight:bold\">" + m1 + "</span>"),
+                        target: v
+                    });
+                }
+            });
+        } else {
+            map = this.map;
+            map.forEach(function(v, i) {
+                if (v.isMain) mainKey.push(v.key);
+                else subKey.push(v.key);
+                if (v.isTarget) targetKey = v.key;
+            });
+
+            results = resp.map(function(v) {
+                reg = new RegExp(self.value.trim(), "ig");
+
+                main = mainKey.map(function(x) {
+                    var value = self._readObject(v, x.split("."));
+                    m1 = "";
+
+                    if (value.match(reg)) m1 = value.match(reg)[0] || "";
+                    return m1 || !self.value.trim() ? value.replace(reg, "<span style=\"font-weight:bold\">" + m1 + "</span>") : "";
+                });
+
+                sub = subKey.map(function(x) {
+                    var value = self._readObject(v, x.split("."));
+
+                    if (value.match(reg)) m = value.match(reg)[0] || "";
+                    return value.replace(reg, "<span style=\"font-weight:bold\">" + m + "</span>");
+                });
+
+                return {
+                    id: v.id,
+                    main: main.join(" - "),
+                    sub: sub.join(" - "),
+                    target: v[targetKey]
+                };
+            }).filter(function(x) {
+                return x.main !== "";
+            });
+        }
+
+        this.set("results", results);
+        this._showOverlay();
+    },
+
+    _moveToItem: (function() {
+        var lastSelect;
+        return function(thisSelected, isDownward) {
+            if (lastSelect != undefined) this.set("results." + lastSelect + ".select", false);
+            this.set("results." + thisSelected + ".select", true);
+            var selectedItem = this.$$(".result-item[data-selected]");
+            var resultPanel = this.$$(".result-panel");
+            if (selectedItem.offsetTop > (resultPanel.scrollTop + resultPanel.clientHeight - 55) && isDownward) {
+                resultPanel.scrollTop = (selectedItem.offsetTop - (resultPanel.clientHeight - 55));
+            } else if (selectedItem.offsetTop < resultPanel.scrollTop || selectedItem.offsetTop === resultPanel.scrollHeight - 55) {
+                resultPanel.scrollTop = selectedItem.offsetTop;
+            }
+
+            lastSelect = thisSelected;
+        };
+    })(),
+
+    _fireCustomEvent: function(id) {
+        this.fire("select", {
+            'id': id
+        });
+        this._hideOverlay();
+    },
+
+    _onKeyUp: function(e) {
+        if (e.keyCode === 13 || (e.keyCode === 32 && this._isValidEmail(e.target.value.trim()))) { //enter and space key
+            var selectedRow = this.$$(".result-item[data-selected]");
+            if (selectedRow) {
+                if (selectedRow.getAttribute("data-target") && !this.notTaggable) this._addTag(selectedRow.getAttribute("data-target"));
+                this._fireCustomEvent(selectedRow.getAttribute("data-id"));
+
+                if (this.singleValue || this.displaySelected) this.set("value", selectedRow.getAttribute("data-target"));
+                this.value = "";
+
+            } else if (e.target.value.trim() && !this.notTaggable) {
+                this._addTag(e.target.value.trim());
+            }
+        } else if (e.keyCode === 40) { //arrow down
+            if (!e.target.value.trim() && this.results.length === 0) {
+                this._invokeSearch(e.target.value.trim());
+            } else {
+                if (this._selected === this.results.length - 1) {
+                    this._selected = 0;
+                } else if (this._selected === 0 && this._firstclick) {
+                    this._firstclick = false;
+                } else {
+                    this._selected += 1;
+                }
+
+                this._moveToItem(this._selected, true);
+            }
+
+        } else if (e.keyCode === 38) { //arrow up
+
+            if (this._firstclick && !this._selected) this._selected = this.results.length - 1;
+            if (this._firstclick) this._firstclick = false;
+
+            if (this._selected === 0) {
+                this._selected = this.results.length - 1;
+            } else {
+                this._selected -= 1;
+            }
+
+            this._moveToItem(this._selected);
+        } else if (e.keyCode === 27) {
+            this._hideOverlay();
+        } else {
+            var inp = String.fromCharCode(e.keyCode);
+            var reg = new RegExp(this.keyRange);
+            if (reg.test(inp)) this._invokeSearch(e.target.value.trim());
+        }
+    },
+
+    _format: function(value) {
+        return value.replace(/\W/ig, "");
+    },
+
+    _addTag: function(value) {
+        var duplicated = this.tags.filter(function(x) {
+            return x === value;
+        });
+        if (!duplicated[0]) {
+            this.push('tags', value);
+            this.$.inputField.value = '';
+        } else {
+            this.toggleClass('infinite', true, this.$$('#' + this._format(value)));
+            setTimeout(function() {
+                this.toggleClass('infinite', false, this.$$('#' + this._format(value)));
+            }.bind(this), 1000);
+        }
+        this._setDisplay();
+        this._hideOverlay();
+    },
+
+    _removeTag: function(e) {
+        var tag = e.model.tag;
+        this.tags = this.tags.filter(function(x) {
+            return x != tag;
+        });
+        this._setDisplay();
+    },
+
+    ready: function() {
+        var self = this;
+        self._invokeSearch = self._debounce(function(value) {
+            var url = self.url + "?string=" + value;
+            self.$.ajax.url = url;
+            self.$.ajax.generateRequest();
+        }, 300);
+    }
+});
+</script>

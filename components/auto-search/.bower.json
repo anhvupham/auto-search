@@ -1,0 +1,43 @@
+{
+  "name": "auto-search",
+  "authors": [
+    "Vincent Pham <vincent.pham.us@gmail.com>"
+  ],
+  "description": "An auto complete select box",
+  "keywords": [
+    "web-component",
+    "web-components",
+    "polymer",
+    "polymer auto search",
+    "polymer input seach"
+  ],
+  "main": "input-tagger.html",
+  "license": "MIT",
+  "homepage": "http://anhvupham.github.io/auto-search",
+  "ignore": [
+    "/.*",
+    "/test/",
+    "/demo/"
+  ],
+  "dependencies": {
+    "polymer": "Polymer/polymer#^1.0.0",
+    "iron-ajax": "PolymerElements/iron-ajax#^1.1.1",
+    "iron-icon": "PolymerElements/iron-icon#^1.0.7",
+    "paper-input": "PolymerElements/paper-input#^1.1.8",
+    "iron-input": "PolymerElements/iron-input#^1.0.8"
+  },
+  "devDependencies": {
+    "iron-component-page": "PolymerElements/iron-component-page#^1.0.0",
+    "web-component-tester": "*"
+  },
+  "_release": "5beee1a686",
+  "_resolution": {
+    "type": "branch",
+    "branch": "master",
+    "commit": "5beee1a686524b8178d7d1296ed3f544be178ed6"
+  },
+  "_source": "git://github.com/anhvupham/auto-search.git",
+  "_target": "master",
+  "_originalSource": "anhvupham/auto-search",
+  "_direct": true
+}
